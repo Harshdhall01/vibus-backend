@@ -237,15 +237,26 @@ def api_cities():
     if not query:
         return jsonify([])
 
+    query_norm = normalize(query)
+
     pipeline = [
         {"$unwind": "$stops"},
         {"$match": {"stops.name": {"$regex": query, "$options": "i"}}},
         {"$group": {"_id": "$stops.name"}},
-        {"$limit": limit},
     ]
     results = buses_collection.aggregate(pipeline)
-    suggestions = sorted(set(r["_id"] for r in results))
-    return jsonify(suggestions)
+    all_names = sorted(set(r["_id"] for r in results))
+
+    def rank(name):
+        name_norm = normalize(name)
+        if name_norm == query_norm:
+            return 0
+        if name_norm.startswith(query_norm):
+            return 1
+        return 2
+
+    all_names.sort(key=lambda n: (rank(n), n))
+    return jsonify(all_names[:limit])
 
 
 @app.route("/api/buses")
