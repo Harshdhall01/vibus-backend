@@ -49,6 +49,160 @@ def normalize(name):
     return name.strip().lower()
 
 
+# ---------------------------------------------------------------------
+# City/stop name cleanup — based on a manual audit of all unique stop
+# names in the database. Handles spelling variants, duplicates, and
+# abbreviations so searches like "Gurgaon" and "Gurugram" match as the
+# same place, and junk entries (road names, operator names) never show
+# up as search suggestions.
+# ---------------------------------------------------------------------
+
+CITY_ALIASES = {
+    # Spelling mistakes & duplicates
+    "aaligarh": "aligarh",
+    "gaziabad": "ghaziabad",
+    "gurgaon": "gurugram",
+    "gurugam": "gurugram",
+    "gurugaram": "gurugram",
+    "asandh": "assandh",
+    "bahror": "behror",
+    "bahu jholri": "bahu-jholari",
+    "bawani kheda": "bawani khera",
+    "bijnore": "bijnor",
+    "bhoona": "bhuna",
+    "budlada": "budhlada",
+    "bulandshahar": "bulandshahr",
+    "ch. dadri": "charkhi dadri",
+    "chaumu": "chomu",
+    "devband": "deoband",
+    "dhaula kuwan": "dhaula kuan",
+    "dhola kuan": "dhaula kuan",
+    "dhola kuan, delhi": "dhaula kuan",
+    "dwaraka": "dwarka",
+    "elanabad": "ellenabad",
+    "ellanabad": "ellenabad",
+    "ellnabad": "ellenabad",
+    "fagwara": "phagwara",
+    "farrukhnagar": "farrukh nagar",
+    "farukhnagar": "farrukh nagar",
+    "garh mukteshwar": "garhmukteshwar",
+    "gadhganga": "garh ganga",
+    "garhganga": "garh ganga",
+    "hodel": "hodal",
+    "hoshiyarpur": "hoshiarpur",
+    "jagadhari": "jagadhri",
+    "jatari": "jattari",
+    "kalnaur": "kalanaur",
+    "kharkhauda": "kharkhoda",
+    "khijarabad": "khizrabad",
+    "khijrabad": "khizrabad",
+    "khizarabad": "khizrabad",
+    "kotkasim": "kot kasim",
+    "mahendergarh": "mahendragarh",
+    "maler kotla": "malerkotla",
+    "mandava": "mandawa",
+    "meeerut": "meerut",
+    "meeraganj": "meerganj",
+    "modi nagar": "modinagar",
+    "mohanangar": "mohan nagar",
+    "muradabad": "moradabad",
+    "moradabad(muradabad)": "moradabad",
+    "mujffarnagar": "muzaffarnagar",
+    "mujjafarnagar": "muzaffarnagar",
+    "muzafarnagar": "muzaffarnagar",
+    "muzaffar nagar": "muzaffarnagar",
+    "mukeria": "mukerian",
+    "mukeriya": "mukerian",
+    "murtal": "murthal",
+    "najafagarh": "najafgarh",
+    "nazafgarh": "najafgarh",
+    "narnaud": "narnaul",
+    "narnaund": "narnaul",
+    "nawanshahar": "nawanshahr",
+    "nimrana": "neemrana",
+    "nising": "nissing",
+    "nohra": "nohar",
+    "nuhia wali": "nuhiawali",
+    "paunta sahib": "paonta sahib",
+    "poanta sahib": "paonta sahib",
+    "pokaran": "pokhran",
+    "salasara": "salasar",
+    "samalakha": "samalkha",
+    "sangria": "sangaria",
+    "sangriya": "sangaria",
+    "sardarshar": "sardarshahr",
+    "sonepat": "sonipat",
+    "sunder nagar": "sundernagar",
+    "taour": "taoru",
+    "yamunanagr": "yamunanagar",
+    "yamunangar": "yamunanagar",
+    "vijaynagar": "vijainagar",
+    "khanori": "khanauri",
+    "khanouri": "khanauri",
+    "dhanori": "dhanauri",
+    "arjunsar": "arjansar",
+    "badhara": "badhra",
+    "rawla": "rawala",
+    "chhara": "chara",
+    "ding mod": "deeng mor",
+    "jhirka": "firozpur jhirka",
+    "lakhan majra rohtak": "lakhan majra",
+    "n. chopta": "nathusri chopta",
+
+    # Abbreviations -> canonical full names
+    "skk": "sarai kale khan isbt, delhi",
+    "skk delhi": "sarai kale khan isbt, delhi",
+    "skk delhi isbt": "sarai kale khan isbt, delhi",
+    "delhi skk": "sarai kale khan isbt, delhi",
+    "kale khan": "sarai kale khan isbt, delhi",
+    "kale khan delhi": "sarai kale khan isbt, delhi",
+    "delhi kale khan": "sarai kale khan isbt, delhi",
+    "sarai kale khan": "sarai kale khan isbt, delhi",
+    "delhi sarai kale khan": "sarai kale khan isbt, delhi",
+    "delhi sarai khale khan": "sarai kale khan isbt, delhi",
+    "isbt delhi": "delhi isbt (kashmiri gate)",
+    "delhi isbt": "delhi isbt (kashmiri gate)",
+    "kashmiri gate": "delhi isbt (kashmiri gate)",
+    "delhi kashmiri gate": "delhi isbt (kashmiri gate)",
+    "delhi kashmirigate isbt": "delhi isbt (kashmiri gate)",
+    "delhi k.gate": "delhi isbt (kashmiri gate)",
+    "anand vihar delhi": "anand vihar isbt, delhi",
+    "delhi anand vihar": "anand vihar isbt, delhi",
+    "anand vihar": "anand vihar isbt, delhi",
+    "igi airport": "igi airport, delhi",
+    "delhi igi airport": "igi airport, delhi",
+    "igi airport delhi": "igi airport, delhi",
+    "igi airport new delhi": "igi airport, delhi",
+    "iffco chowk": "iffco chowk, gurugram",
+    "iffco gurugram": "iffco chowk, gurugram",
+    "gurugram (iffco)": "iffco chowk, gurugram",
+
+    # One explicit merge from the "similar but different" audit section
+    "ambala cant": "ambala cantt",
+}
+
+# Junk/invalid stop names found in the data — never show these as search suggestions
+INVALID_STOPS = {
+    "152 d express way", "152 d expressway", "152 dexpressway", "152d",
+    "152d express way", "152d expressway", "152d green expressway",
+    "152dexpressway", "nh 152d", "via 152 d express way", "expressway",
+    "four lane", "meerut expressway", "dausa expressway", "haryana roadways",
+    "rsrtc express", "terrace", "loan", "bond", "kaitha;", "medical college",
+    "gpw", "gpw faridabad", "airport", "nagar", "garh", "smain", "kmp",
+}
+
+
+def canonical(name):
+    """Returns a canonical form so known aliases/duplicates match as one stop."""
+    n = normalize(name)
+    return CITY_ALIASES.get(n, n)
+
+
+def is_valid_stop(name):
+    """Filters out junk entries (road names, operator names, stray words) from results."""
+    return normalize(name) not in INVALID_STOPS
+
+
 def haversine_km(lat1, lon1, lat2, lon2):
     R = 6371
     dlat = math.radians(lat2 - lat1)
@@ -174,16 +328,14 @@ def search():
     if not from_stop or not to_stop:
         return jsonify({"error": "Both 'from' and 'to' query parameters are required"}), 400
 
-    from_norm = normalize(from_stop)
-    to_norm = normalize(to_stop)
+    from_norm = canonical(from_stop)
+    to_norm = canonical(to_stop)
 
-    candidates = buses_collection.find({
-        "stops.name": {"$regex": f"^{from_stop}$", "$options": "i"}
-    })
+    candidates = buses_collection.find({})
 
     results = []
     for bus in candidates:
-        stop_order = {normalize(s["name"]): s["order"] for s in bus["stops"]}
+        stop_order = {canonical(s["name"]): s["order"] for s in bus["stops"]}
         if from_norm in stop_order and to_norm in stop_order:
             if stop_order[to_norm] > stop_order[from_norm]:
                 bus["_id"] = str(bus["_id"])
@@ -218,12 +370,11 @@ def autocomplete():
         {"$unwind": "$stops"},
         {"$match": {"stops.name": {"$regex": query, "$options": "i"}}},
         {"$group": {"_id": "$stops.name"}},
-        {"$limit": 10},
     ]
     results = buses_collection.aggregate(pipeline)
-    suggestions = sorted(set(r["_id"] for r in results))
+    suggestions = sorted({r["_id"] for r in results if r["_id"] and is_valid_stop(r["_id"])})
 
-    return jsonify({"suggestions": suggestions})
+    return jsonify({"suggestions": suggestions[:10]})
 
 
 # ---------------------------------------------------------------------
@@ -245,7 +396,7 @@ def api_cities():
         {"$group": {"_id": "$stops.name"}},
     ]
     results = buses_collection.aggregate(pipeline)
-    all_names = sorted(set(r["_id"] for r in results))
+    all_names = sorted({r["_id"] for r in results if r["_id"] and is_valid_stop(r["_id"])})
 
     def rank(name):
         name_norm = normalize(name)
@@ -267,16 +418,14 @@ def api_buses_search():
     if not from_stop or not to_stop:
         return jsonify([])
 
-    from_norm = normalize(from_stop)
-    to_norm = normalize(to_stop)
+    from_norm = canonical(from_stop)
+    to_norm = canonical(to_stop)
 
-    candidates = buses_collection.find({
-        "stops.name": {"$regex": f"^{from_stop}$", "$options": "i"}
-    })
+    candidates = buses_collection.find({})
 
     results = []
     for bus in candidates:
-        stop_order = {normalize(s["name"]): s["order"] for s in bus["stops"]}
+        stop_order = {canonical(s["name"]): s["order"] for s in bus["stops"]}
         if from_norm in stop_order and to_norm in stop_order:
             if stop_order[to_norm] > stop_order[from_norm]:
                 results.append(bus_to_summary(bus))
