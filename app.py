@@ -233,17 +233,24 @@ def compute_distance_km(stops):
     return round(total)
 
 
-def bus_to_summary(bus):
+def bus_to_summary(bus, from_canon, to_canon):
     stops = bus["stops"]
-    dep = bus["departure_time"]
-    arr = stops[-1]["estimated_time"]
+    from_stop = next(s for s in stops if canonical(s["name"]) == from_canon)
+    to_stop = next(s for s in stops if canonical(s["name"]) == to_canon)
+
+    # Only the portion of the route between the searched stops (inclusive)
+    segment = [s for s in stops if from_stop["order"] <= s["order"] <= to_stop["order"]]
+
+    dep = from_stop["estimated_time"]
+    arr = to_stop["estimated_time"]
+
     return {
         "id": bus["bus_id"],
-        "from": stops[0]["name"],
-        "to": stops[-1]["name"],
+        "from": from_stop["name"],
+        "to": to_stop["name"],
         "operator": bus["bus_type"],
         "ac": bus["is_ac"],
-        "distanceKm": bus["distance_km"] or compute_distance_km(stops),
+        "distanceKm": compute_distance_km(segment),
         "dep": dep,
         "arr": arr,
         "durationMin": diff_minutes(dep, arr),
@@ -428,7 +435,7 @@ def api_buses_search():
         stop_order = {canonical(s["name"]): s["order"] for s in bus["stops"]}
         if from_norm in stop_order and to_norm in stop_order:
             if stop_order[to_norm] > stop_order[from_norm]:
-                results.append(bus_to_summary(bus))
+                results.append(bus_to_summary(bus, from_norm, to_norm))
 
     results.sort(key=lambda b: b["dep"])
     return jsonify(results)
