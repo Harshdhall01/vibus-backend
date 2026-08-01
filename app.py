@@ -38,7 +38,11 @@ CONNECTION_STRING = (
 )
 
 app = Flask(__name__)
-CORS(app, origins=["https://vibus-frontend.vercel.app"])
+CORS(app, origins=[
+    "https://vibus-frontend.vercel.app",
+    "https://vibus.in",
+    "https://www.vibus.in",
+])
 
 client = MongoClient(CONNECTION_STRING)
 db = client["hbus"]
